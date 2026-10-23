@@ -9,7 +9,7 @@ Tú das la orden desde **Telegram**, **Batuta** (el orquestador) dirige y tres e
 |---|---|---|
 | **Iris** · La Recolectora | Curiosa y meticulosa; jamás inventa un dato | Consulta datos reales de Alpha Vantage por MCP |
 | **Euler** · El Analista | Riguroso con los números | Python calcula; OpenAI interpreta |
-| **Vera** · La Comunicadora | Mentora cercana, paciente y didáctica | Traduce el análisis a lenguaje cotidiano para Telegram |
+| **Vera** · La Comunicadora | Clara, breve y honesta; paciente y entusiasta | Traduce el análisis a lenguaje cotidiano sin exagerar resultados |
 
 ```
 Tú en Telegram: /analiza AAPL

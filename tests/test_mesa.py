@@ -92,10 +92,13 @@ def test_agentes_reales_encadenan_con_openai_simulado(monkeypatch):
     assert r["entrega_3_nota"].endswith(agentes.DESCARGO)                   # el descargo se garantiza
 
 
-def test_vera_tiene_personalidad_didactica_visible():
+def test_vera_tiene_personalidad_completa_y_visible():
     r = pl.pipeline("AAPL", avisar=lambda t: None)
     assert "💡 En sencillo:" in r["entrega_3_nota"]
-    assert "mentora financiera cercana" in agentes.PROMPT_COMUNICADOR
+    prompt = agentes.PROMPT_COMUNICADOR.lower()
+    for rasgo in ("clara", "breve", "honesta", "paciente", "entusiasta"):
+        assert rasgo in prompt
+    assert "sin exagerar resultados ni prometer rendimientos" in prompt
 
 
 def test_llamar_openai_configura_responses_y_mcp_sin_exponer_llaves(monkeypatch):
