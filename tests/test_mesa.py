@@ -43,7 +43,7 @@ def test_ticker_valido(entrada, esperado):
     assert pl.normalizar_ticker(entrada) == esperado
 
 
-@pytest.mark.parametrize("entrada", ["", "AAPL; rm -rf", "ACCIONMUYLARGAXYZ"])
+@pytest.mark.parametrize("entrada", ["", "...", "123", "AAPL; rm -rf", "ACCIONMUYLARGAXYZ"])
 def test_ticker_invalido(entrada):
     with pytest.raises(ValueError):
         pl.normalizar_ticker(entrada)
@@ -234,7 +234,7 @@ def test_revision_de_github_actions_atiende_y_confirma(monkeypatch):
 
 
 def test_revision_sin_token_termina_sin_error(monkeypatch, capsys):
-    """Una copia de la plantilla sin Secrets no debe marcar error en Actions cada 10 minutos."""
+    """Una copia de la plantilla sin Secrets no debe marcar error en Actions cada 15 minutos."""
     import revisar_telegram as rt
     monkeypatch.setattr(config, "TELEGRAM_BOT_TOKEN", "")
     rt.main()
@@ -249,3 +249,81 @@ def test_los_agentes_se_presentan_con_su_nombre():
     for nombre in ("Batuta", "Iris", "Euler", "Vera"):
         assert nombre in texto
     assert r["entrega_3_nota"].startswith(agentes.FIRMA_VERA)
+
+
+def test_bot_permanece_cerrado_si_falta_chat_id(monkeypatch, capsys):
+    """Sin chat autorizado, el bot no debe leer ni contestar mensajes."""
+    import revisar_telegram as rt
+    monkeypatch.setattr(config, "TELEGRAM_BOT_TOKEN", "token-de-prueba")
+    monkeypatch.setattr(config, "TELEGRAM_CHAT_ID", "")
+    monkeypatch.setattr(rt, "verificar_bot", lambda: pytest.fail("No debe conectarse"))
+    with pytest.raises(SystemExit) as salida:
+        rt.main()
+    assert "TELEGRAM_CHAT_ID" in str(salida.value)
+
+
+def test_errores_ocultan_todas_las_llaves(monkeypatch):
+    from mesa.telegram_io import mensaje_error_seguro
+
+    secreto_telegram = "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk"
+    monkeypatch.setattr(config, "TELEGRAM_BOT_TOKEN", secreto_telegram)
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "sk-proyecto-secreto")
+    monkeypatch.setattr(config, "ALPHAVANTAGE_API_KEY", "ALPHA-SECRETA")
+    texto = (
+        f"falló {secreto_telegram}; openai=sk-proyecto-secreto; "
+        "alpha=ALPHA-SECRETA"
+    )
+    limpio = mensaje_error_seguro(RuntimeError(texto))
+    for secreto in (secreto_telegram, "sk-proyecto-secreto", "ALPHA-SECRETA"):
+        assert secreto not in limpio
+    assert "***" in limpio
+
+
+def test_fallo_de_red_de_telegram_no_expone_token(monkeypatch):
+    import requests
+    from mesa import telegram_io
+
+    secreto = "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk"
+    monkeypatch.setattr(config, "TELEGRAM_BOT_TOKEN", secreto)
+    monkeypatch.setattr(
+        telegram_io.requests,
+        "request",
+        lambda *args, **kwargs: (_ for _ in ()).throw(requests.RequestException("sin red")),
+    )
+    with pytest.raises(RuntimeError) as error:
+        telegram_io.verificar_bot()
+    assert secreto not in str(error.value)
+
+
+def test_euler_y_vera_tienen_respaldo_si_falla_openai(monkeypatch):
+    monkeypatch.setattr(config, "MODO_SIMULACION", False)
+    monkeypatch.setattr(
+        agentes,
+        "llamar_openai",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("servicio no disponible")),
+    )
+    ficha = agentes.ficha_demo("AAPL", "prueba")
+    analisis = agentes.agente_analista(ficha)
+    nota = agentes.agente_comunicador(analisis)
+    assert analisis["ficha"] == ficha
+    assert agentes.DESCARGO in nota
+    assert nota.startswith(agentes.FIRMA_VERA)
+
+
+def test_prompts_ignoran_instrucciones_dentro_de_datos():
+    for prompt in (
+        agentes.PROMPT_RECOLECTOR,
+        agentes.PROMPT_ANALISTA,
+        agentes.PROMPT_COMUNICADOR,
+    ):
+        assert "no confiable" in prompt
+        assert "ignora" in prompt.lower()
+
+
+def test_cron_fue_cambiado_a_quince_minutos():
+    from pathlib import Path
+
+    workflow = Path(__file__).parents[1] / ".github" / "workflows" / "mesa-financiera.yml"
+    contenido = workflow.read_text(encoding="utf-8")
+    assert 'cron: "*/15 * * * *"' in contenido
+    assert 'cron: "*/10 * * * *"' not in contenido

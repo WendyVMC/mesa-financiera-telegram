@@ -9,11 +9,14 @@ import requests
 
 from mesa import config
 from mesa.comandos import atender
-from mesa.telegram_io import obtener_mensajes, preparar_polling, verificar_bot
+from mesa.telegram_io import (mensaje_error_seguro, obtener_mensajes, preparar_polling,
+                              verificar_bot)
 
 
 def main():
     print("Configuración:", config.resumen())
+    if not config.TELEGRAM_CHAT_ID:
+        raise RuntimeError("Falta TELEGRAM_CHAT_ID. El bot permanece cerrado por seguridad.")
     print(f"✅ Bot @{verificar_bot()} escuchando. Escríbele /analiza AAPL. Ctrl + C para detener.")
     preparar_polling()
     offset = None
@@ -25,9 +28,9 @@ def main():
                     try:
                         atender(actualizacion["message"])
                     except Exception as error:
-                        print(f"⚠️ {type(error).__name__}: {error}")
-        except requests.RequestException as error:
-            print("Conexión inestable, reintento en 5 s:", error)
+                        print("⚠️", mensaje_error_seguro(error))
+        except (requests.RequestException, RuntimeError) as error:
+            print("Conexión inestable, reintento en 5 s:", mensaje_error_seguro(error))
             time.sleep(5)
 
 

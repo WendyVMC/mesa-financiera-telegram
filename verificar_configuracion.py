@@ -6,6 +6,7 @@
 import sys
 
 from mesa import config
+from mesa.telegram_io import mensaje_error_seguro
 
 
 def main():
@@ -20,7 +21,7 @@ def main():
             print(f"  Telegram                ✅ bot @{verificar_bot()} responde")
         except Exception as error:
             errores += 1
-            print(f"  Telegram                ❌ {error}")
+            print(f"  Telegram                ❌ {mensaje_error_seguro(error)}")
 
     if "--mcp" in sys.argv:
         if config.MODO_SIMULACION:

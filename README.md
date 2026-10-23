@@ -34,7 +34,7 @@ Tu copia incluye todo, también la carpeta oculta `.github` con las automatizaci
 | Ruta | Cómo empezar | ¿Computadora encendida? |
 |---|---|---|
 | **A · Google Colab** | [Abrir el notebook en Colab](https://colab.research.google.com/github/eldamorales/mesa-financiera-telegram/blob/main/notebook/Mesa_Financiera_Telegram.ipynb) | Sí, con la pestaña abierta |
-| **B · GitHub Actions** | En tu copia: Settings → Secrets → Actions, y luego Actions → *mesa-financiera* → Run workflow | **No** |
+| **B · GitHub Actions** | En tu copia: Settings → Secrets → Actions, y luego Actions → *mesa-financiera* → Run workflow. El cron revisa Telegram cada 15 minutos. | **No** |
 | **C · Claude Code** | claude.ai/code con tu copia, o `claude` en la terminal | No, en la versión web |
 | **D · Codex** | Codex en la nube o la CLI; lee `AGENTS.md` | No, en la nube |
 | **E · Codespaces o clonar** | En tu copia: **Code → Codespaces → Create codespace on main** | Codespaces: no, mientras lo usas |
@@ -68,6 +68,9 @@ cp .env.example .env                                   # abre .env y pega tus ll
 Dónde guardarlas, según la ruta: **Colab** → panel 🔑 · **Actions** → Settings → Secrets and variables → Actions ·
 **Codespaces** → tu perfil → Settings → Codespaces → Codespaces secrets · **Tu computadora** → archivo `.env`.
 Nunca las escribas en el código ni las subas a GitHub.
+
+Las recomendaciones de seguridad solicitadas para la actividad y la evidencia de su
+aplicación están documentadas en [`SEGURIDAD.md`](SEGURIDAD.md).
 
 El modelo predeterminado es `gpt-6-luna`, elegido por su velocidad y costo para esta actividad breve. Puedes cambiarlo con la variable opcional `OPENAI_MODEL` sin modificar el código.
 
