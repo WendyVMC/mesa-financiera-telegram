@@ -74,14 +74,17 @@ def test_agentes_reales_encadenan_con_openai_simulado(monkeypatch):
     """Imita las respuestas de OpenAI para revisar el camino 'real' sin gastar llaves."""
     monkeypatch.setattr(config, "MODO_SIMULACION", False)
 
-    def openai_falso(system, mensaje, usar_mcp=False, max_tokens=900, herramienta_mcp=None):
+    def openai_falso(system, mensaje, usar_mcp=False, max_tokens=900, herramienta_mcp=None,
+                     devolver_salidas_mcp=False):
         if usar_mcp:
             if herramienta_mcp == "GLOBAL_QUOTE":
-                return ('{"ticker":"IBM","precio":"250.5","cambio_pct":"-0.8%",'
-                        '"fecha_dato":"2026-10-22"}', ["GLOBAL_QUOTE"])
-            return ('{"ticker":"IBM","nombre":"IBM","sector":"Tech","pe_ratio":"40.1",'
-                    '"beta":"0.7","max_52s":"300","min_52s":"200",'
-                    '"cap_mercado_usd":"1000"}', ["COMPANY_OVERVIEW"])
+                respuesta = ('{"ticker":"IBM","precio":"250.5","cambio_pct":"-0.8%",'
+                             '"fecha_dato":"2026-10-22"}', ["GLOBAL_QUOTE"], [])
+            else:
+                respuesta = ('{"ticker":"IBM","nombre":"IBM","sector":"Tech","pe_ratio":"40.1",'
+                             '"beta":"0.7","max_52s":"300","min_52s":"200",'
+                             '"cap_mercado_usd":"1000"}', ["COMPANY_OVERVIEW"], [])
+            return respuesta if devolver_salidas_mcp else respuesta[:2]
         if "Analista" in system:
             datos = json.loads(mensaje)
             assert datos["indicadores"]["posicion_rango_52s_pct"] == 50.5   # recibió la entrega 1
@@ -162,6 +165,25 @@ def test_llamar_openai_fuerza_una_herramienta_mcp(monkeypatch):
     herramienta = llamadas[0]["tools"][0]
     assert herramienta["allowed_tools"] == ["COMPANY_OVERVIEW"]
     assert llamadas[0]["tool_choice"]["name"] == "COMPANY_OVERVIEW"
+
+
+def test_extrae_campos_desde_la_salida_original_de_mcp():
+    salida = [{"content": [{"type": "text", "text": json.dumps({
+        "Symbol": "AAPL", "Name": "Apple Inc", "Sector": "TECHNOLOGY",
+        "PERatio": "35.2", "Beta": "1.18", "52WeekHigh": "360.0",
+        "52WeekLow": "170.0", "MarketCapitalization": "5200000000000"
+    })}]}]
+    ficha = agentes.extraer_campos_alpha(salida)
+    assert ficha["nombre"] == "Apple Inc"
+    assert ficha["pe_ratio"] == "35.2"
+    assert ficha["beta"] == "1.18"
+    assert ficha["max_52s"] == "360.0" and ficha["min_52s"] == "170.0"
+
+
+def test_null_del_modelo_no_borra_el_dato_mcp():
+    ficha = agentes.combinar_fichas({"nombre": None, "beta": None},
+                                    {"nombre": "Apple Inc", "beta": "1.18"})
+    assert ficha == {"nombre": "Apple Inc", "beta": "1.18"}
 
 
 def test_nota_conserva_formato_de_la_captura():

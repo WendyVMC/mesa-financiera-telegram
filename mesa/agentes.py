@@ -28,7 +28,8 @@ def _cliente_openai():
     return _cliente
 
 
-def llamar_openai(system, mensaje, usar_mcp=False, max_tokens=900, herramienta_mcp=None):
+def llamar_openai(system, mensaje, usar_mcp=False, max_tokens=900, herramienta_mcp=None,
+                  devolver_salidas_mcp=False):
     """Envía un mensaje a OpenAI. Devuelve (texto, herramientas_MCP_usadas)."""
     base = dict(model=config.OPENAI_MODEL, instructions=system, input=mensaje,
                 max_output_tokens=max_tokens, store=False)
@@ -53,8 +54,15 @@ def llamar_openai(system, mensaje, usar_mcp=False, max_tokens=900, herramienta_m
     else:
         respuesta = cliente.responses.create(**base)
     texto = respuesta.output_text.strip()
-    herramientas = [item.name for item in respuesta.output
-                     if getattr(item, "type", None) == "mcp_call"]
+    llamadas_mcp = [item for item in respuesta.output
+                    if getattr(item, "type", None) == "mcp_call"]
+    for item in llamadas_mcp:
+        if getattr(item, "error", None):
+            raise RuntimeError(f"La herramienta MCP {item.name} falló")
+    herramientas = [item.name for item in llamadas_mcp]
+    salidas = [getattr(item, "output", None) for item in llamadas_mcp]
+    if devolver_salidas_mcp:
+        return texto, herramientas, salidas
     return texto, herramientas
 
 
@@ -64,6 +72,56 @@ def extraer_json(texto):
     if inicio == -1 or fin <= inicio:
         raise ValueError("El agente no devolvió JSON")
     return json.loads(texto[inicio:fin + 1])
+
+
+def _objetos_json(valor):
+    """Recorre la salida MCP, incluso cuando contiene JSON anidado como texto."""
+    if isinstance(valor, dict):
+        yield valor
+        for hijo in valor.values():
+            yield from _objetos_json(hijo)
+    elif isinstance(valor, list):
+        for hijo in valor:
+            yield from _objetos_json(hijo)
+    elif isinstance(valor, str):
+        try:
+            yield from _objetos_json(json.loads(valor))
+        except (json.JSONDecodeError, TypeError):
+            return
+
+
+CLAVES_ALPHA = {
+    "symbol": "ticker", "01symbol": "ticker",
+    "name": "nombre", "sector": "sector",
+    "price": "precio", "05price": "precio",
+    "changepercent": "cambio_pct", "10changepercent": "cambio_pct",
+    "latesttradingday": "fecha_dato", "07latesttradingday": "fecha_dato",
+    "peratio": "pe_ratio", "beta": "beta",
+    "52weekhigh": "max_52s", "52weeklow": "min_52s",
+    "marketcapitalization": "cap_mercado_usd",
+}
+
+
+def extraer_campos_alpha(salidas):
+    """Extrae cifras directamente del output MCP sin pedir al modelo que las copie."""
+    campos = {}
+    for objeto in _objetos_json(salidas):
+        for clave, valor in objeto.items():
+            normalizada = "".join(c for c in str(clave).lower() if c.isalnum())
+            destino = CLAVES_ALPHA.get(normalizada)
+            if destino and valor not in (None, "", "None", "null", "-"):
+                campos[destino] = valor
+    return campos
+
+
+def combinar_fichas(*fuentes):
+    """Une fuentes sin permitir que un null posterior borre un dato real."""
+    resultado = {}
+    for fuente in fuentes:
+        for clave, valor in fuente.items():
+            if valor is not None or clave not in resultado:
+                resultado[clave] = valor
+    return resultado
 
 
 def a_numero(valor):
@@ -115,13 +173,17 @@ def agente_recolector(ticker):
     if config.MODO_SIMULACION:
         return ficha_demo(ticker, "modo simulación"), []
     try:
-        texto_cot, herramientas_cot = llamar_openai(
+        texto_cot, herramientas_cot, salidas_cot = llamar_openai(
             PROMPT_COTIZACION, f"Acción: {ticker}", usar_mcp=True,
-            herramienta_mcp="GLOBAL_QUOTE")
-        texto_empresa, herramientas_empresa = llamar_openai(
+            herramienta_mcp="GLOBAL_QUOTE", devolver_salidas_mcp=True)
+        texto_empresa, herramientas_empresa, salidas_empresa = llamar_openai(
             PROMPT_EMPRESA, f"Acción: {ticker}", usar_mcp=True,
-            herramienta_mcp="COMPANY_OVERVIEW")
-        ficha = {**extraer_json(texto_cot), **extraer_json(texto_empresa)}
+            herramienta_mcp="COMPANY_OVERVIEW", devolver_salidas_mcp=True)
+        # La salida original de MCP es la autoridad para las cifras. El JSON
+        # del modelo solo completa nombres de claves cuando sea necesario.
+        ficha = combinar_fichas(
+            extraer_json(texto_cot), extraer_json(texto_empresa),
+            extraer_campos_alpha(salidas_cot + salidas_empresa))
         ficha["ticker"] = ticker
         ficha["fuente"] = "Alpha Vantage vía MCP"
         for campo in CAMPOS_FICHA:
