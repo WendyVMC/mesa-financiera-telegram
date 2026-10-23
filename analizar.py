@@ -41,8 +41,10 @@ def main():
     print("\n" + "=" * 60 + "\nNOTA FINAL (Vera · Agente 3)\n" + "=" * 60)
     print(resultado["entrega_3_nota"])
     if args.telegram:
+        from mesa.comandos import AYUDA
         from mesa.telegram_io import enviar
         enviar(config.TELEGRAM_CHAT_ID, resultado["entrega_3_nota"])
+        enviar(config.TELEGRAM_CHAT_ID, AYUDA)
     print(f"\n💾 Evidencia guardada en: {resultado['archivo']}")
 
 

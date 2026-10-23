@@ -74,20 +74,24 @@ def test_agentes_reales_encadenan_con_openai_simulado(monkeypatch):
     """Imita las respuestas de OpenAI para revisar el camino 'real' sin gastar llaves."""
     monkeypatch.setattr(config, "MODO_SIMULACION", False)
 
-    def openai_falso(system, mensaje, usar_mcp=False, max_tokens=900):
+    def openai_falso(system, mensaje, usar_mcp=False, max_tokens=900, herramienta_mcp=None):
         if usar_mcp:
-            return ('{"nombre":"IBM","sector":"Tech","precio":"250.5","cambio_pct":"-0.8%",'
-                    '"pe_ratio":"40.1","beta":"0.7","max_52s":"300","min_52s":"200"}', ["GLOBAL_QUOTE"])
+            if herramienta_mcp == "GLOBAL_QUOTE":
+                return ('{"ticker":"IBM","precio":"250.5","cambio_pct":"-0.8%",'
+                        '"fecha_dato":"2026-10-22"}', ["GLOBAL_QUOTE"])
+            return ('{"ticker":"IBM","nombre":"IBM","sector":"Tech","pe_ratio":"40.1",'
+                    '"beta":"0.7","max_52s":"300","min_52s":"200",'
+                    '"cap_mercado_usd":"1000"}', ["COMPANY_OVERVIEW"])
         if "Analista" in system:
             datos = json.loads(mensaje)
             assert datos["indicadores"]["posicion_rango_52s_pct"] == 50.5   # recibió la entrega 1
             return '{"lectura_precio":"a","lectura_riesgo":"b","lectura_valuacion":"c","pregunta_para_investigar":"d"}', []
         assert '"lectura_precio": "a"' in mensaje                           # recibió la entrega 2
-        return "IBM: nota sin descargo", []
+        return '{"en_sencillo":"a","valoracion":"c","pregunta":"¿d?"}', []
 
     monkeypatch.setattr(agentes, "llamar_openai", openai_falso)
     r = pl.pipeline("IBM", avisar=lambda t: None)
-    assert r["herramientas_mcp"] == ["GLOBAL_QUOTE"]
+    assert r["herramientas_mcp"] == ["GLOBAL_QUOTE", "COMPANY_OVERVIEW"]
     assert r["entrega_1_ficha"]["fuente"] == "Alpha Vantage vía MCP"
     assert r["entrega_3_nota"].endswith(agentes.DESCARGO)                   # el descargo se garantiza
 
@@ -133,6 +137,47 @@ def test_llamar_openai_configura_responses_y_mcp_sin_exponer_llaves(monkeypatch)
     assert llamadas[0]["tools"][0]["require_approval"] == "never"
 
 
+def test_llamar_openai_fuerza_una_herramienta_mcp(monkeypatch):
+    llamadas = []
+
+    class Item:
+        type = "mcp_call"
+        name = "COMPANY_OVERVIEW"
+
+    class Respuesta:
+        output_text = '{"nombre":"Apple Inc"}'
+        output = [Item()]
+
+    class Responses:
+        def create(self, **kwargs):
+            llamadas.append(kwargs)
+            return Respuesta()
+
+    class Cliente:
+        responses = Responses()
+
+    monkeypatch.setattr(agentes, "_cliente", Cliente())
+    agentes.llamar_openai("sistema", "AAPL", usar_mcp=True,
+                          herramienta_mcp="COMPANY_OVERVIEW")
+    herramienta = llamadas[0]["tools"][0]
+    assert herramienta["allowed_tools"] == ["COMPANY_OVERVIEW"]
+    assert llamadas[0]["tool_choice"]["name"] == "COMPANY_OVERVIEW"
+
+
+def test_nota_conserva_formato_de_la_captura():
+    r = pl.pipeline("AAPL", avisar=lambda t: None)
+    nota = r["entrega_3_nota"]
+    lineas = nota.splitlines()
+    assert lineas[0] == "✍️ Vera · Comunicadora"
+    assert lineas[1].startswith("⚠️ DATOS DEMO")
+    assert any(x.startswith("📊 AAPL ·") for x in lineas)
+    assert any(x.startswith("Precio:") for x in lineas)
+    assert any(x.startswith("Riesgo:") for x in lineas)
+    assert any(x.startswith("💡 En sencillo:") for x in lineas)
+    assert any(x.startswith("🔎 ") for x in lineas)
+    assert lineas[-1] == agentes.DESCARGO
+
+
 def test_bot_ignora_chats_ajenos_y_responde_ayuda(monkeypatch):
     enviados = []
     monkeypatch.setattr(comandos, "enviar", lambda chat, texto: enviados.append((chat, texto)))
@@ -142,7 +187,9 @@ def test_bot_ignora_chats_ajenos_y_responde_ayuda(monkeypatch):
     comandos.atender({"chat": {"id": 111}, "text": "hola"})
     assert "Mesa Financiera" in enviados[-1][1]
     r = comandos.atender({"chat": {"id": 111}, "text": "/analiza aapl"})
-    assert r["ticker"] == "AAPL" and agentes.DESCARGO in enviados[-1][1]
+    assert r["ticker"] == "AAPL"
+    assert agentes.DESCARGO in enviados[-2][1]
+    assert enviados[-1][1] == comandos.AYUDA
 
 
 def test_revision_de_github_actions_atiende_y_confirma(monkeypatch):

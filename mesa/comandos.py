@@ -34,6 +34,7 @@ def atender(mensaje):
     try:
         resultado = pipeline(ticker, avisar=lambda t: enviar(chat_id, t))
         enviar(chat_id, resultado["entrega_3_nota"])
+        enviar(chat_id, AYUDA)
         return resultado
     except Exception as error:
         enviar(chat_id, f"⚠️ No pude completar el análisis ({type(error).__name__}). "

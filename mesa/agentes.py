@@ -28,21 +28,27 @@ def _cliente_openai():
     return _cliente
 
 
-def llamar_openai(system, mensaje, usar_mcp=False, max_tokens=900):
+def llamar_openai(system, mensaje, usar_mcp=False, max_tokens=900, herramienta_mcp=None):
     """Envía un mensaje a OpenAI. Devuelve (texto, herramientas_MCP_usadas)."""
     base = dict(model=config.OPENAI_MODEL, instructions=system, input=mensaje,
                 max_output_tokens=max_tokens, store=False)
     cliente = _cliente_openai()
     if usar_mcp:
+        herramienta = {
+            "type": "mcp",
+            "server_label": "alphavantage",
+            "server_description": "Datos bursátiles de Alpha Vantage para una actividad educativa.",
+            "server_url": f"https://mcp.alphavantage.co/mcp?apikey={config.ALPHAVANTAGE_API_KEY}",
+            "require_approval": "never",
+        }
+        if herramienta_mcp:
+            herramienta["allowed_tools"] = [herramienta_mcp]
+            base["tool_choice"] = {
+                "type": "mcp", "server_label": "alphavantage", "name": herramienta_mcp
+            }
         respuesta = cliente.responses.create(
             **base,
-            tools=[{
-                "type": "mcp",
-                "server_label": "alphavantage",
-                "server_description": "Datos bursátiles de Alpha Vantage para una actividad educativa.",
-                "server_url": f"https://mcp.alphavantage.co/mcp?apikey={config.ALPHAVANTAGE_API_KEY}",
-                "require_approval": "never",
-            }],
+            tools=[herramienta],
         )
     else:
         respuesta = cliente.responses.create(**base)
@@ -73,13 +79,22 @@ def a_numero(valor):
 # ----------------------------------------------------------------------
 PROMPT_RECOLECTOR = """Eres Iris, la Recolectora (Agente 1) de una mesa financiera educativa.
 Tu personalidad: curiosa y meticulosa; jamás inventas un dato.
-Tarea: obtener datos REALES de la acción indicada con las herramientas de Alpha Vantage.
+Tarea: convertir la respuesta de la herramienta indicada en el JSON solicitado.
 Reglas:
-- Haz como máximo 2 consultas: cotización actual y datos generales de la empresa.
+- Usa obligatoriamente la única herramienta MCP disponible una sola vez.
 - NUNCA inventes cifras. Si un dato no está disponible, escribe null.
-- Responde SOLO con un JSON con estas claves exactas:
-  ticker, nombre, sector, precio, cambio_pct, fecha_dato, pe_ratio, beta,
-  max_52s, min_52s, cap_mercado_usd"""
+- Conserva fielmente los datos devueltos por Alpha Vantage.
+- Responde SOLO con el JSON solicitado, sin comentarios."""
+
+PROMPT_COTIZACION = PROMPT_RECOLECTOR + """
+Devuelve estas claves exactas: ticker, precio, cambio_pct, fecha_dato."""
+
+PROMPT_EMPRESA = PROMPT_RECOLECTOR + """
+Devuelve estas claves exactas: ticker, nombre, sector, pe_ratio, beta,
+max_52s, min_52s, cap_mercado_usd."""
+
+CAMPOS_FICHA = ("ticker", "nombre", "sector", "precio", "cambio_pct", "fecha_dato",
+                "pe_ratio", "beta", "max_52s", "min_52s", "cap_mercado_usd")
 
 DATOS_DEMO = {
     "nombre": "Empresa ficticia (simulación)", "sector": "Tecnología",
@@ -100,10 +115,18 @@ def agente_recolector(ticker):
     if config.MODO_SIMULACION:
         return ficha_demo(ticker, "modo simulación"), []
     try:
-        texto, herramientas = llamar_openai(PROMPT_RECOLECTOR, f"Acción: {ticker}", usar_mcp=True)
-        ficha = extraer_json(texto)
+        texto_cot, herramientas_cot = llamar_openai(
+            PROMPT_COTIZACION, f"Acción: {ticker}", usar_mcp=True,
+            herramienta_mcp="GLOBAL_QUOTE")
+        texto_empresa, herramientas_empresa = llamar_openai(
+            PROMPT_EMPRESA, f"Acción: {ticker}", usar_mcp=True,
+            herramienta_mcp="COMPANY_OVERVIEW")
+        ficha = {**extraer_json(texto_cot), **extraer_json(texto_empresa)}
         ficha["ticker"] = ticker
         ficha["fuente"] = "Alpha Vantage vía MCP"
+        for campo in CAMPOS_FICHA:
+            ficha.setdefault(campo, None)
+        herramientas = list(dict.fromkeys(herramientas_cot + herramientas_empresa))
         return ficha, herramientas
     except Exception as error:                     # MCP caído, cuota agotada o JSON inválido
         return ficha_demo(ticker, f"MCP no disponible: {type(error).__name__}"), []
@@ -174,15 +197,16 @@ def agente_analista(ficha):
 # ----------------------------------------------------------------------
 # VERA · La Comunicadora (Agente 3)
 # ----------------------------------------------------------------------
-PROMPT_COMUNICADOR = f"""Eres Vera, la Comunicadora (Agente 3). Con el análisis de Euler, redacta una nota para Telegram.
+PROMPT_COMUNICADOR = f"""Eres Vera, la Comunicadora (Agente 3). Con el análisis de Euler, redacta los textos de una nota para Telegram.
 Tu personalidad: clara, breve y honesta; además, paciente y entusiasta. Como mentora financiera cercana y didáctica,
 explicas términos técnicos con palabras cotidianas, sin infantilizar, y reconoces los límites del análisis.
 Mantén un entusiasmo sereno: anima a seguir aprendiendo sin exagerar resultados ni prometer rendimientos.
-- Máximo 900 caracteres, español claro, 3 a 5 emojis como máximo.
-- Estructura: título con ticker · cifras clave · semáforo de riesgo · sección "En sencillo" · pregunta para investigar.
-- Usa solo las cifras recibidas; si la fuente dice DEMO, adviértelo en la primera línea.
-- Cierra SIEMPRE con: "{DESCARGO}"
-Texto plano, sin Markdown."""
+- Usa solo la información recibida y no recalcules cifras.
+- Responde SOLO con JSON con estas claves: en_sencillo, valoracion, pregunta.
+- en_sencillo: una explicación paciente y clara de la posición en el rango de 52 semanas.
+- valoracion: una frase breve sobre el P/E y la comparación con el sector.
+- pregunta: una pregunta entusiasta que anime a seguir investigando.
+El código añadirá el formato fijo, los emojis y el descargo "{DESCARGO}"."""
 
 
 def nota_simulada(analisis):
@@ -196,10 +220,33 @@ def nota_simulada(analisis):
             f"🔎 {lec['pregunta_para_investigar']}\n\n{DESCARGO}")
 
 
+def formatear_nota(analisis, textos=None):
+    """Compone siempre la misma tarjeta de Telegram mostrada en la guía."""
+    f, ind, lec = analisis["ficha"], analisis["indicadores"], analisis["lectura"]
+    textos = textos or {}
+    fuente = f.get("fuente") or ""
+    encabezado_demo = f"\n⚠️ {fuente}" if "DEMO" in fuente else ""
+    beta = "sin dato" if ind.get("beta") is None else ind["beta"]
+    en_sencillo = textos.get("en_sencillo") or lec.get("lectura_precio", "Dato no disponible.")
+    valoracion = textos.get("valoracion") or lec.get("lectura_valuacion", "Dato no disponible.")
+    pregunta = textos.get("pregunta") or lec.get("pregunta_para_investigar", "¿Qué dato conviene investigar después?")
+    if not pregunta.endswith("?"):
+        pregunta = pregunta.rstrip(". ") + "?"
+    return (f"{FIRMA_VERA}{encabezado_demo}\n"
+            f"📊 {f['ticker']} · {f.get('nombre') or 'Nombre no disponible'}\n"
+            f"Precio: {f.get('precio')} USD ({ind.get('cambio_pct')} % en el día)\n"
+            f"Riesgo: {ind['semaforo_beta']} (beta {beta})\n"
+            f"💡 En sencillo: {en_sencillo}\n"
+            f"{valoracion}\n"
+            f"🔎 {pregunta}\n\n{DESCARGO}")
+
+
 def agente_comunicador(analisis):
     if config.MODO_SIMULACION:
-        return nota_simulada(analisis)
+        return formatear_nota(analisis)
     texto, _ = llamar_openai(PROMPT_COMUNICADOR, json.dumps(analisis, ensure_ascii=False), max_tokens=600)
-    if DESCARGO not in texto:                      # garantía aunque el modelo lo olvide
-        texto += f"\n\n{DESCARGO}"
-    return f"{FIRMA_VERA}\n{texto}"
+    try:
+        textos = extraer_json(texto)
+    except (ValueError, json.JSONDecodeError):
+        textos = {}
+    return formatear_nota(analisis, textos)
