@@ -65,16 +65,16 @@ def test_mcp_caido_usa_respaldo_demo(monkeypatch):
 
     def falla(*args, **kwargs):
         raise ConnectionError("sin red")
-    monkeypatch.setattr(agentes, "llamar_claude", falla)
+    monkeypatch.setattr(agentes, "llamar_openai", falla)
     ficha, herramientas = agentes.agente_recolector("AAPL")
     assert "DEMO" in ficha["fuente"] and herramientas == []
 
 
-def test_agentes_reales_encadenan_con_claude_simulado(monkeypatch):
-    """Imita las respuestas de Claude para revisar el camino 'real' sin gastar llaves."""
+def test_agentes_reales_encadenan_con_openai_simulado(monkeypatch):
+    """Imita las respuestas de OpenAI para revisar el camino 'real' sin gastar llaves."""
     monkeypatch.setattr(config, "MODO_SIMULACION", False)
 
-    def claude_falso(system, mensaje, usar_mcp=False, max_tokens=900):
+    def openai_falso(system, mensaje, usar_mcp=False, max_tokens=900):
         if usar_mcp:
             return ('{"nombre":"IBM","sector":"Tech","precio":"250.5","cambio_pct":"-0.8%",'
                     '"pe_ratio":"40.1","beta":"0.7","max_52s":"300","min_52s":"200"}', ["GLOBAL_QUOTE"])
@@ -85,11 +85,49 @@ def test_agentes_reales_encadenan_con_claude_simulado(monkeypatch):
         assert '"lectura_precio": "a"' in mensaje                           # recibió la entrega 2
         return "IBM: nota sin descargo", []
 
-    monkeypatch.setattr(agentes, "llamar_claude", claude_falso)
+    monkeypatch.setattr(agentes, "llamar_openai", openai_falso)
     r = pl.pipeline("IBM", avisar=lambda t: None)
     assert r["herramientas_mcp"] == ["GLOBAL_QUOTE"]
     assert r["entrega_1_ficha"]["fuente"] == "Alpha Vantage vía MCP"
     assert r["entrega_3_nota"].endswith(agentes.DESCARGO)                   # el descargo se garantiza
+
+
+def test_vera_tiene_personalidad_didactica_visible():
+    r = pl.pipeline("AAPL", avisar=lambda t: None)
+    assert "💡 En sencillo:" in r["entrega_3_nota"]
+    assert "mentora financiera cercana" in agentes.PROMPT_COMUNICADOR
+
+
+def test_llamar_openai_configura_responses_y_mcp_sin_exponer_llaves(monkeypatch):
+    llamadas = []
+
+    class Item:
+        type = "mcp_call"
+        name = "GLOBAL_QUOTE"
+
+    class Respuesta:
+        output_text = '{"precio": 123}'
+        output = [Item()]
+
+    class Responses:
+        def create(self, **kwargs):
+            llamadas.append(kwargs)
+            return Respuesta()
+
+    class Cliente:
+        responses = Responses()
+
+    monkeypatch.setattr(agentes, "_cliente", Cliente())
+    monkeypatch.setattr(config, "ALPHAVANTAGE_API_KEY", "alpha-de-prueba")
+    texto, herramientas = agentes.llamar_openai("sistema", "mensaje", usar_mcp=True)
+
+    assert texto == '{"precio": 123}' and herramientas == ["GLOBAL_QUOTE"]
+    assert llamadas[0]["model"] == config.OPENAI_MODEL
+    assert llamadas[0]["instructions"] == "sistema"
+    assert llamadas[0]["input"] == "mensaje"
+    assert llamadas[0]["store"] is False
+    assert llamadas[0]["tools"][0]["type"] == "mcp"
+    assert llamadas[0]["tools"][0]["require_approval"] == "never"
 
 
 def test_bot_ignora_chats_ajenos_y_responde_ayuda(monkeypatch):

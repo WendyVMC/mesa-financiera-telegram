@@ -8,8 +8,8 @@ Tú das la orden desde **Telegram**, **Batuta** (el orquestador) dirige y tres e
 | Agente | Personalidad | Qué hace |
 |---|---|---|
 | **Iris** · La Recolectora | Curiosa y meticulosa; jamás inventa un dato | Consulta datos reales de Alpha Vantage por MCP |
-| **Euler** · El Analista | Riguroso con los números | Python calcula; Claude interpreta |
-| **Vera** · La Comunicadora | Clara, breve y honesta | Redacta la nota final para Telegram |
+| **Euler** · El Analista | Riguroso con los números | Python calcula; OpenAI interpreta |
+| **Vera** · La Comunicadora | Mentora cercana, paciente y didáctica | Traduce el análisis a lenguaje cotidiano para Telegram |
 
 ```
 Tú en Telegram: /analiza AAPL
@@ -18,7 +18,7 @@ Tú en Telegram: /analiza AAPL
  Batuta · Orquestador (mesa/pipeline.py)
         │
         ├─► Iris  · Recolectora ── consulta Alpha Vantage por MCP ──► ficha JSON
-        ├─► Euler · Analista ───── Python calcula, Claude interpreta ─► análisis JSON
+        ├─► Euler · Analista ───── Python calcula, OpenAI interpreta ─► análisis JSON
         └─► Vera  · Comunicadora ─ redacta la nota ───────────────────► mensaje en Telegram
 ```
 
@@ -44,7 +44,7 @@ Las instrucciones paso a paso están en [`docs/`](docs/): Guía del estudiante y
 ## Empezar en 1 minuto, sin llaves
 ```bash
 pip install -r requirements.txt pytest
-pytest -q                               # 20 passed
+pytest -q                               # 22 passed
 python analizar.py AAPL --simulacion    # la cadena completa con datos ficticios
 ```
 
@@ -62,11 +62,13 @@ cp .env.example .env                                   # abre .env y pega tus ll
 |---|---|
 | `TELEGRAM_BOT_TOKEN` | @BotFather en Telegram |
 | `TELEGRAM_CHAT_ID` | `python obtener_chat_id.py` |
-| `ANTHROPIC_API_KEY` | Claude Console (la entrega la docente) |
+| `OPENAI_API_KEY` | OpenAI Platform → API keys |
 | `ALPHAVANTAGE_API_KEY` | https://www.alphavantage.co/support/#api-key (gratis, 25 consultas al día) |
 
 Dónde guardarlas, según la ruta: **Colab** → panel 🔑 · **Actions** → Settings → Secrets and variables → Actions ·
 **Codespaces** → tu perfil → Settings → Codespaces → Codespaces secrets · **Tu computadora** → archivo `.env`.
 Nunca las escribas en el código ni las subas a GitHub.
+
+El modelo predeterminado es `gpt-6-luna`, elegido por su velocidad y costo para esta actividad breve. Puedes cambiarlo con la variable opcional `OPENAI_MODEL` sin modificar el código.
 
 > Material educativo. Las notas que generan los agentes **no son recomendaciones de inversión**.
