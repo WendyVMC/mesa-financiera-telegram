@@ -184,6 +184,13 @@ def agente_recolector(ticker):
         ficha = combinar_fichas(
             extraer_json(texto_cot), extraer_json(texto_empresa),
             extraer_campos_alpha(salidas_cot + salidas_empresa))
+        if any(ficha.get(campo) is None for campo in ("nombre", "pe_ratio", "beta", "max_52s", "min_52s")):
+            # Solo registra señales no sensibles; nunca publica el contenido crudo.
+            diagnostico = str(salidas_empresa).lower()
+            señales = {palabra: palabra in diagnostico for palabra in
+                       ("limit", "rate", "premium", "information", "symbol", "name", "beta", "peratio")}
+            print("🧾 Diagnóstico COMPANY_OVERVIEW:",
+                  {"tipo": type(salidas_empresa).__name__, "longitud": len(diagnostico), **señales})
         ficha["ticker"] = ticker
         ficha["fuente"] = "Alpha Vantage vía MCP"
         for campo in CAMPOS_FICHA:
