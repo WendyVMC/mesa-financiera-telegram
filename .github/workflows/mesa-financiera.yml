@@ -50,6 +50,7 @@ jobs:
         run: python analizar.py "$TICKER" --telegram
 
       - name: Revisar mensajes pendientes en Telegram
+        if: github.event_name == 'schedule' || env.TICKER == ''
         run: python revisar_telegram.py
 
       - name: Guardar evidencias
